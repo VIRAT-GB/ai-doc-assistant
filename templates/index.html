@@ -1,0 +1,907 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AI Doc Assistant</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+</head>
+
+
+<body>
+
+<!-- =====================================================
+     SIDEBAR
+     ===================================================== -->
+
+<aside class="sidebar">
+
+    <div class="sidebar-brand">
+
+        <div class="brand-icon">
+            ✦
+        </div>
+
+        <div class="brand-text">
+
+            <div class="brand-title">
+                AI Doc Assistant
+            </div>
+
+            <div class="brand-subtitle">
+                Intelligent document analysis
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <div class="sidebar-divider"></div>
+
+
+    <div class="sidebar-section-title">
+        WORKSPACE
+    </div>
+
+
+    <div class="sidebar-item active">
+
+        <span class="sidebar-icon">▦</span>
+
+        <span>Dashboard</span>
+
+    </div>
+
+
+    <div class="sidebar-item">
+
+        <span class="sidebar-icon">◫</span>
+
+        <span>Documents</span>
+
+    </div>
+
+
+    <div class="sidebar-item">
+
+        <span class="sidebar-icon">✦</span>
+
+        <span>AI Assistant</span>
+
+    </div>
+
+
+    <!-- Sidebar account area -->
+
+    <div class="sidebar-account">
+
+        <div class="sidebar-divider"></div>
+
+        <div class="user-profile">
+
+            <div class="user-avatar">
+                {{ current_user.username[0]|upper }}
+            </div>
+
+            <div class="user-profile-info">
+
+                <div class="user-profile-label">
+                    Logged in as
+                </div>
+
+                <div class="user-profile-name">
+                    {{ current_user.username }}
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <a
+            href="{{ url_for('logout') }}"
+            class="logout-link"
+        >
+
+            <span class="logout-icon">
+                ↪
+            </span>
+
+            <span>
+                Logout
+            </span>
+
+        </a>
+
+    </div>
+
+</aside>
+
+
+
+<!-- =====================================================
+     MAIN CONTENT
+     ===================================================== -->
+
+<main class="main-content">
+
+
+    <!-- =================================================
+         HEADER
+         ================================================= -->
+
+    <header class="top-header">
+
+        <div class="header-left">
+
+            <h1>
+                Dashboard
+            </h1>
+
+            <p>
+                Upload a document and ask questions using AI.
+            </p>
+
+        </div>
+
+
+        <div class="header-user">
+
+            <div class="header-user-avatar">
+                {{ current_user.username[0]|upper }}
+            </div>
+
+            <div class="header-user-info">
+
+                <div class="header-user-name">
+                    {{ current_user.username }}
+                </div>
+
+                <div class="header-user-status">
+                    Account active
+                </div>
+
+            </div>
+
+        </div>
+
+    </header>
+
+
+
+    <!-- =================================================
+         FLASH MESSAGES
+         ================================================= -->
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+
+        {% if messages %}
+
+            <div class="flash-container">
+
+                {% for category, message in messages %}
+
+                    <div class="flash-message {{ category }}">
+
+                        <span class="flash-icon">
+
+                            {% if category == "success" %}
+                                ✓
+                            {% else %}
+                                !
+                            {% endif %}
+
+                        </span>
+
+                        <span>
+                            {{ message }}
+                        </span>
+
+                    </div>
+
+                {% endfor %}
+
+            </div>
+
+        {% endif %}
+
+    {% endwith %}
+
+
+
+    <!-- =================================================
+         DASHBOARD GRID
+         ================================================= -->
+
+    <div class="dashboard-grid">
+
+
+        <!-- =================================================
+             LEFT COLUMN
+             ================================================= -->
+
+        <section class="left-column">
+
+
+            <!-- =========================
+                 UPLOAD DOCUMENT
+                 ========================= -->
+
+            <div class="card upload-card">
+
+                <div class="card-header">
+
+                    <div class="card-icon">
+                        ↑
+                    </div>
+
+                    <div>
+
+                        <div class="card-title">
+                            Upload Document
+                        </div>
+
+                        <div class="card-subtitle">
+                            Upload a PDF to start analyzing it
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <form
+                    action="{{ url_for('upload') }}"
+                    method="POST"
+                    enctype="multipart/form-data"
+                >
+
+                    <label class="upload-area">
+
+                        <input
+                            type="file"
+                            name="file"
+                            accept=".pdf"
+                            required
+                        >
+
+                        <div class="upload-icon">
+                            ↑
+                        </div>
+
+                        <div class="upload-title">
+                            Choose a PDF
+                        </div>
+
+                        <div class="upload-description">
+                            Click here to select a document
+                        </div>
+
+                        <div class="upload-format">
+                            PDF files only
+                        </div>
+
+                    </label>
+
+
+                    <button
+                        type="submit"
+                        class="primary-btn"
+                    >
+                        Upload PDF
+                    </button>
+
+                </form>
+
+            </div>
+
+
+
+            <!-- =========================
+                 CURRENT DOCUMENT
+                 ========================= -->
+
+            {% if current_document %}
+
+            <div class="card current-document-card">
+
+                <div class="card-header">
+
+                    <div class="card-icon">
+                        ◫
+                    </div>
+
+                    <div>
+
+                        <div class="card-title">
+                            Current Document
+                        </div>
+
+                        <div class="card-subtitle">
+                            Selected document
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="current-document">
+
+                    <div class="document-icon">
+                        PDF
+                    </div>
+
+
+                    <div class="document-info">
+
+                        <div class="document-name">
+                            {{ current_document.filename }}
+                        </div>
+
+                        <div class="document-meta">
+
+                            {{ current_document.chunk_count }}
+                            chunks
+
+                            <span class="meta-dot">·</span>
+
+                            {{ current_document.upload_date.strftime('%d %b %Y') }}
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="document-status">
+                        Active
+                    </div>
+
+                </div>
+
+            </div>
+
+            {% endif %}
+
+
+
+            <!-- =========================
+                 RECENT DOCUMENTS
+                 ========================= -->
+
+            <div class="card">
+
+                <div class="card-header">
+
+                    <div class="card-icon">
+                        ◫
+                    </div>
+
+                    <div>
+
+                        <div class="card-title">
+                            Recent Documents
+                        </div>
+
+                        <div class="card-subtitle">
+                            Your uploaded documents
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                {% if documents %}
+
+                <div class="document-list">
+
+                    {% for document in documents %}
+
+                    <div class="document-row">
+
+                        <div class="document-icon">
+                            PDF
+                        </div>
+
+
+                        <div class="document-info">
+
+                            <div class="document-name">
+                                {{ document.filename }}
+                            </div>
+
+                            <div class="document-meta">
+
+                                {{ document.chunk_count }}
+                                chunks
+
+                                <span class="meta-dot">·</span>
+
+                                {{ document.upload_date.strftime('%d %b %Y') }}
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="document-actions">
+
+                            <a
+                                href="{{ url_for('open_document', document_id=document.id) }}"
+                                class="open-btn"
+                            >
+                                Open
+                            </a>
+
+                            <a
+                                href="{{ url_for('delete_document', document_id=document.id) }}"
+                                class="delete-btn"
+                                onclick="return confirm('Delete this document?');"
+                            >
+                                Delete
+                            </a>
+
+                        </div>
+
+                    </div>
+
+                    {% endfor %}
+
+                </div>
+
+                {% else %}
+
+                <div class="history-empty">
+                    No documents uploaded yet.
+                </div>
+
+                {% endif %}
+
+            </div>
+
+        </section>
+
+
+
+        <!-- =================================================
+             RIGHT COLUMN
+             ================================================= -->
+
+        <section class="right-column">
+
+
+            <!-- =========================
+                 AI ASSISTANT
+                 ========================= -->
+
+            <div class="card ai-card">
+
+                <div class="card-header">
+
+                    <div class="card-icon ai-icon">
+                        ✦
+                    </div>
+
+                    <div>
+
+                        <div class="card-title">
+                            AI Assistant
+                        </div>
+
+                        <div class="card-subtitle">
+                            Ask questions about your document
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                {% if current_document %}
+
+                <form
+                    action="{{ url_for('ask') }}"
+                    method="POST"
+                    class="question-form"
+                >
+
+                    <label class="question-label">
+                        Your question
+                    </label>
+
+
+                    <textarea
+                        name="question"
+                        class="question-input"
+                        placeholder="Ask something about your document..."
+                        rows="4"
+                        required
+                    ></textarea>
+
+
+                    <button
+                        type="submit"
+                        class="primary-btn ask-btn"
+                    >
+
+                        <span>✦</span>
+
+                        Ask AI
+
+                    </button>
+
+                </form>
+
+
+
+                <!-- =========================
+                     ANSWER
+                     ========================= -->
+
+                {% if answer %}
+
+                <div class="answer-card">
+
+                    <div class="answer-header">
+
+                        <div class="answer-icon">
+                            ✦
+                        </div>
+
+                        <div>
+
+                            <div class="answer-title">
+                                AI Answer
+                            </div>
+
+                            <div class="answer-subtitle">
+                                Generated from your document
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="answer-text">
+                        {{ answer|safe }}
+                    </div>
+
+
+                    {% if sources %}
+
+                    <div class="source-section">
+
+                        <div class="source-title">
+                            Source References
+                        </div>
+
+
+                        <div class="source-document">
+
+                            <strong>
+                                {{ current_document.filename }}
+                            </strong>
+
+
+                            <div class="source-pages">
+
+                                {% for page in sources %}
+
+                                <span class="source-page">
+                                    Page {{ page }}
+                                </span>
+
+                                {% endfor %}
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    {% endif %}
+
+                </div>
+
+                {% endif %}
+
+
+
+                <!-- =========================
+                     EMPTY AI STATE
+                     ========================= -->
+
+                {% if not answer %}
+
+                <div class="ai-empty-state">
+
+                    <div class="ai-empty-icon">
+                        ✦
+                    </div>
+
+                    <div class="ai-empty-title">
+                        Ready to help
+                    </div>
+
+                    <div class="ai-empty-text">
+                        Ask a question and AI will search your
+                        document for the most relevant information.
+                    </div>
+
+                </div>
+
+                {% endif %}
+
+
+                {% else %}
+
+                <div class="ai-empty-state">
+
+                    <div class="ai-empty-icon">
+                        ◫
+                    </div>
+
+                    <div class="ai-empty-title">
+                        Select a document
+                    </div>
+
+                    <div class="ai-empty-text">
+                        Upload or open a PDF before asking
+                        questions.
+                    </div>
+
+                </div>
+
+                {% endif %}
+
+            </div>
+
+
+
+            <!-- =========================
+                 CHAT HISTORY
+                 ========================= -->
+
+            {% if chat_history %}
+
+            <div class="chat-history-card">
+
+                <div class="chat-history-header">
+
+                    <div class="chat-history-icon">
+                        💬
+                    </div>
+
+                    <div>
+
+                        <div class="chat-history-title">
+                            Chat History
+                        </div>
+
+                        <div class="chat-history-subtitle">
+                            Previous questions and AI answers
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="chat-history-list">
+
+                    {% for chat in chat_history %}
+
+                    <div class="chat-message">
+
+                        <div class="chat-user">
+
+                            <div class="chat-avatar user-avatar-small">
+                                You
+                            </div>
+
+                            <div class="chat-content">
+
+                                <div class="chat-label">
+                                    You
+                                </div>
+
+                                <div class="chat-question">
+                                    {{ chat.question }}
+                                </div>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="chat-ai">
+
+                            <div class="chat-avatar ai-avatar">
+                                ✦
+                            </div>
+
+                            <div class="chat-content">
+
+                                <div class="chat-label">
+                                    AI Assistant
+                                </div>
+
+                                <div class="chat-answer">
+                                    {{ chat.answer|safe }}
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+            {% endif %}
+
+
+
+            <!-- =========================
+                 DOCUMENT SUMMARY
+                 ========================= -->
+
+            {% if current_document %}
+
+            <div class="card summary-card-container">
+
+                <div class="card-header">
+
+                    <div class="card-icon">
+                        ≡
+                    </div>
+
+                    <div>
+
+                        <div class="card-title">
+                            Document Summary
+                        </div>
+
+                        <div class="card-subtitle">
+                            Generate an AI summary of this PDF
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <form
+                    action="{{ url_for('summarize') }}"
+                    method="POST"
+                    class="summary-form"
+                >
+
+                    <button
+                        type="submit"
+                        class="summary-btn"
+                    >
+
+                        <span>✦</span>
+
+                        Generate Summary
+
+                    </button>
+
+                </form>
+
+
+                {% if summary %}
+
+                <div class="summary-card">
+
+                    <div class="summary-header">
+
+                        <div class="summary-icon">
+                            ✦
+                        </div>
+
+                        <span>
+                            AI Document Summary
+                        </span>
+
+                    </div>
+
+
+                    <div class="summary-text">
+                        {{ summary|safe }}
+                    </div>
+
+
+                    <div class="summary-source">
+
+                        <strong>
+                            Source:
+                        </strong>
+
+                        {{ current_document.filename }}
+
+                    </div>
+
+                </div>
+
+                {% endif %}
+
+            </div>
+
+            {% endif %}
+
+        </section>
+
+    </div>
+
+</main>
+
+
+
+<!-- =====================================================
+     LOADING FEEDBACK
+     ===================================================== -->
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const forms = document.querySelectorAll("form");
+
+    forms.forEach(function (form) {
+
+        form.addEventListener("submit", function () {
+
+            const button = form.querySelector(
+                "button[type='submit']"
+            );
+
+            if (!button) {
+                return;
+            }
+
+            button.disabled = true;
+
+            const originalHTML = button.innerHTML;
+
+            button.innerHTML = "Processing...";
+
+            setTimeout(function () {
+
+                button.disabled = false;
+
+                button.innerHTML = originalHTML;
+
+            }, 15000);
+
+        });
+
+    });
+
+});
+
+</script>
+
+
+</body>
+
+</html>
