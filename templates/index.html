@@ -1,8 +1,9 @@
-
 <!DOCTYPE html>
+
 <html lang="en">
 
 <head>
+
     <meta charset="UTF-8">
 
     <meta
@@ -16,10 +17,12 @@
         rel="stylesheet"
         href="{{ url_for('static', filename='style.css') }}"
     >
+
 </head>
 
 
 <body>
+
 
 <!-- =====================================================
      SIDEBAR
@@ -518,6 +521,15 @@
                     class="question-form"
                 >
 
+                    <!-- FIX: send selected document ID -->
+
+                    <input
+                        type="hidden"
+                        name="document_id"
+                        value="{{ current_document.id }}"
+                    >
+
+
                     <label class="question-label">
                         Your question
                     </label>
@@ -794,6 +806,15 @@
                     method="POST"
                     class="summary-form"
                 >
+
+                    <!-- FIX: send selected document ID -->
+
+                    <input
+                        type="hidden"
+                        name="document_id"
+                        value="{{ current_document.id }}"
+                    >
+
 
                     <button
                         type="submit"

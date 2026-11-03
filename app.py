@@ -1,7 +1,6 @@
 import os
+import re
 import uuid
-import numpy as np
-import ollama
 
 from flask import (
     Flask,
@@ -12,7 +11,6 @@ from flask import (
     flash
 )
 
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
     LoginManager,
     login_user,
@@ -30,14 +28,13 @@ from werkzeug.utils import secure_filename
 
 from dotenv import load_dotenv
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
 import markdown
 
 from models import db, User, Document, ChatHistory
 
 
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
+# ENVIRONMENT
 # ============================================================
 
 load_dotenv()
@@ -49,11 +46,6 @@ load_dotenv()
 
 app = Flask(__name__)
 
-
-# ============================================================
-# APPLICATION CONFIGURATION
-# ============================================================
-
 app.config["SECRET_KEY"] = os.getenv(
     "SECRET_KEY",
     "ai-doc-assistant-secret-key"
@@ -63,12 +55,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///documents.db"
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Maximum upload size = 10 MB
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 
 # ============================================================
-# UPLOAD FOLDER
+# UPLOAD CONFIGURATION
 # ============================================================
 
 UPLOAD_FOLDER = os.path.join(
@@ -82,11 +73,6 @@ os.makedirs(
 )
 
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
-
-# ============================================================
-# ALLOWED FILE TYPES
-# ============================================================
 
 ALLOWED_EXTENSIONS = {
     "pdf"
@@ -103,7 +89,7 @@ def allowed_file(filename):
 
 
 # ============================================================
-# INITIALIZE DATABASE
+# DATABASE
 # ============================================================
 
 db.init_app(app)
@@ -119,12 +105,6 @@ login_manager.init_app(app)
 
 login_manager.login_view = "login"
 
-login_manager.login_message = "Please login to continue."
-
-
-# ============================================================
-# LOAD LOGGED-IN USER
-# ============================================================
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -133,90 +113,10 @@ def load_user(user_id):
 
 
 # ============================================================
-# EMBEDDING MODEL
-# ============================================================
-
-print("Loading embedding model...")
-
-embedding_model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
-
-print("Embedding model loaded successfully.")
-
-
-# ============================================================
-# TEXT CHUNKING
-# ============================================================
-
-def split_text(
-    text,
-    chunk_size=500,
-    overlap=100
-):
-
-    chunks = []
-
-    start = 0
-
-    while start < len(text):
-
-        end = start + chunk_size
-
-        chunk = text[start:end]
-
-        if chunk.strip():
-
-            chunks.append(chunk)
-
-        start = end - overlap
-
-    return chunks
-
-
-# ============================================================
-# COSINE SIMILARITY
-# ============================================================
-
-def cosine_similarity(
-    vector1,
-    vector2
-):
-
-    vector1 = np.array(vector1)
-
-    vector2 = np.array(vector2)
-
-    denominator = (
-        np.linalg.norm(vector1)
-        *
-        np.linalg.norm(vector2)
-    )
-
-    if denominator == 0:
-
-        return 0
-
-    similarity = np.dot(
-        vector1,
-        vector2
-    ) / denominator
-
-    return similarity
-
-
-# ============================================================
-# DOCUMENT LOADER
+# PDF PROCESSING
 # ============================================================
 
 def load_document(document):
-
-    # New documents use stored_filename.
-    #
-    # Existing documents created before this feature
-    # still have stored_filename = NULL.
-    #
-    # In that case, use the original filename.
 
     filename = (
         document.stored_filename
@@ -224,15 +124,13 @@ def load_document(document):
     )
 
     file_path = os.path.join(
-        app.config["UPLOAD_FOLDER"],
+        UPLOAD_FOLDER,
         filename
     )
 
     if not os.path.exists(file_path):
 
-        raise FileNotFoundError(
-            "The document file could not be found."
-        )
+        return []
 
     reader = PdfReader(file_path)
 
@@ -243,7 +141,9 @@ def load_document(document):
         start=1
     ):
 
-        text = page.extract_text()
+        text = page.extract_text() or ""
+
+        text = text.strip()
 
         if text:
 
@@ -258,69 +158,259 @@ def load_document(document):
 
 
 # ============================================================
+# SIMPLE TEXT CHUNKING
+# ============================================================
+
+def split_text(text, chunk_size=1000):
+
+    words = text.split()
+
+    chunks = []
+
+    current_chunk = []
+
+    current_length = 0
+
+    for word in words:
+
+        current_chunk.append(word)
+
+        current_length += len(word) + 1
+
+        if current_length >= chunk_size:
+
+            chunks.append(
+                " ".join(current_chunk)
+            )
+
+            current_chunk = []
+
+            current_length = 0
+
+    if current_chunk:
+
+        chunks.append(
+            " ".join(current_chunk)
+        )
+
+    return chunks
+
+
+# ============================================================
+# KEYWORD SEARCH
+#
+# Lightweight replacement for the heavy embedding model
+# used by the local development version.
+# ============================================================
+
+def search_document(pages, question, limit=3):
+
+    question_words = set(
+        re.findall(
+            r"\b[a-zA-Z0-9]+\b",
+            question.lower()
+        )
+    )
+
+    stop_words = {
+        "what",
+        "is",
+        "are",
+        "was",
+        "were",
+        "the",
+        "a",
+        "an",
+        "my",
+        "me",
+        "of",
+        "in",
+        "on",
+        "to",
+        "for",
+        "and",
+        "or",
+        "from",
+        "about",
+        "tell",
+        "give",
+        "show",
+        "does",
+        "do",
+        "how",
+        "which",
+        "who"
+    }
+
+    question_words = (
+        question_words - stop_words
+    )
+
+    scored_pages = []
+
+    for page in pages:
+
+        text = page["text"]
+
+        text_words = set(
+            re.findall(
+                r"\b[a-zA-Z0-9]+\b",
+                text.lower()
+            )
+        )
+
+        score = len(
+            question_words & text_words
+        )
+
+        if score > 0:
+
+            scored_pages.append(
+                {
+                    "page": page["page"],
+                    "text": text,
+                    "score": score
+                }
+            )
+
+    scored_pages.sort(
+        key=lambda item: item["score"],
+        reverse=True
+    )
+
+    return scored_pages[:limit]
+
+
+# ============================================================
+# EXTRACTIVE ANSWER
+# ============================================================
+
+def generate_answer(question, results):
+
+    if not results:
+
+        return (
+            "I could not find information related "
+            "to your question in this document."
+        )
+
+    question_words = set(
+        re.findall(
+            r"\b[a-zA-Z0-9]+\b",
+            question.lower()
+        )
+    )
+
+    stop_words = {
+        "what",
+        "is",
+        "are",
+        "was",
+        "were",
+        "the",
+        "a",
+        "an",
+        "my",
+        "me",
+        "of",
+        "in",
+        "on",
+        "to",
+        "for",
+        "and",
+        "or",
+        "from",
+        "about",
+        "tell",
+        "give",
+        "show",
+        "does",
+        "do",
+        "how",
+        "which",
+        "who"
+    }
+
+    question_words -= stop_words
+
+    candidate_sentences = []
+
+    for result in results:
+
+        sentences = re.split(
+            r"(?<=[.!?])\s+",
+            result["text"]
+        )
+
+        for sentence in sentences:
+
+            sentence = sentence.strip()
+
+            if not sentence:
+
+                continue
+
+            sentence_words = set(
+                re.findall(
+                    r"\b[a-zA-Z0-9]+\b",
+                    sentence.lower()
+                )
+            )
+
+            matches = len(
+                question_words & sentence_words
+            )
+
+            if matches > 0:
+
+                candidate_sentences.append(
+                    (
+                        matches,
+                        sentence,
+                        result["page"]
+                    )
+                )
+
+    candidate_sentences.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
+
+    selected = []
+
+    for _, sentence, page in candidate_sentences:
+
+        if sentence not in selected:
+
+            selected.append(sentence)
+
+        if len(selected) >= 3:
+
+            break
+
+    if not selected:
+
+        return results[0]["text"][:1000]
+
+    return " ".join(selected)
+
+
+# ============================================================
 # CHAT HISTORY
 # ============================================================
 
 def get_chat_history(document_id):
 
-    return ChatHistory.query.filter_by(
-        document_id=document_id
-    ).order_by(
-        ChatHistory.created_at.asc()
-    ).all()
-
-
-# ============================================================
-# BUILD CONVERSATION CONTEXT
-# ============================================================
-
-def build_conversation_context(document_id):
-
-    history = ChatHistory.query.filter_by(
-        document_id=document_id
-    ).order_by(
-        ChatHistory.created_at.desc()
-    ).limit(5).all()
-
-    history.reverse()
-
-    if not history:
-
-        return "No previous conversation."
-
-    conversation = []
-
-    for item in history:
-
-        conversation.append(
-            f"User: {item.question}"
+    return (
+        ChatHistory.query
+        .filter_by(
+            document_id=document_id
         )
-
-        conversation.append(
-            f"Assistant: {item.answer}"
+        .order_by(
+            ChatHistory.created_at.desc()
         )
-
-    return "\n".join(conversation)
-
-
-# ============================================================
-# HOME / DASHBOARD
-# ============================================================
-
-@app.route("/")
-@login_required
-def home():
-
-    documents = Document.query.filter_by(
-        user_id=current_user.id
-    ).order_by(
-        Document.upload_date.desc()
-    ).all()
-
-    return render_template(
-        "index.html",
-        documents=documents,
-        current_document=None
+        .limit(5)
+        .all()
     )
 
 
@@ -334,77 +424,28 @@ def home():
 )
 def register():
 
-    if current_user.is_authenticated:
-
-        return redirect(
-            url_for("home")
-        )
-
     if request.method == "POST":
 
-        username = request.form.get(
-            "username",
-            ""
+        username = (
+            request.form.get("username")
+            or ""
         ).strip()
 
-        password = request.form.get(
-            "password",
-            ""
+        password = (
+            request.form.get("password")
+            or ""
         )
 
-        confirm_password = request.form.get(
-            "confirm_password",
-            ""
-        )
-
-        # --------------------------------------------
-        # VALIDATE USERNAME
-        # --------------------------------------------
-
-        if not username:
+        if not username or not password:
 
             flash(
-                "Username is required.",
+                "Username and password are required.",
                 "error"
             )
 
-            return redirect(
-                url_for("register")
+            return render_template(
+                "register.html"
             )
-
-        # --------------------------------------------
-        # VALIDATE PASSWORD
-        # --------------------------------------------
-
-        if len(password) < 6:
-
-            flash(
-                "Password must be at least 6 characters.",
-                "error"
-            )
-
-            return redirect(
-                url_for("register")
-            )
-
-        # --------------------------------------------
-        # CONFIRM PASSWORD
-        # --------------------------------------------
-
-        if password != confirm_password:
-
-            flash(
-                "Passwords do not match.",
-                "error"
-            )
-
-            return redirect(
-                url_for("register")
-            )
-
-        # --------------------------------------------
-        # CHECK EXISTING USER
-        # --------------------------------------------
 
         existing_user = User.query.filter_by(
             username=username
@@ -417,21 +458,15 @@ def register():
                 "error"
             )
 
-            return redirect(
-                url_for("register")
+            return render_template(
+                "register.html"
             )
-
-        # --------------------------------------------
-        # CREATE USER
-        # --------------------------------------------
-
-        hashed_password = generate_password_hash(
-            password
-        )
 
         user = User(
             username=username,
-            password_hash=hashed_password
+            password_hash=generate_password_hash(
+                password
+            )
         )
 
         db.session.add(user)
@@ -439,7 +474,7 @@ def register():
         db.session.commit()
 
         flash(
-            "Account created successfully. Please login.",
+            "Registration successful. Please log in.",
             "success"
         )
 
@@ -462,42 +497,39 @@ def register():
 )
 def login():
 
-    if current_user.is_authenticated:
-
-        return redirect(
-            url_for("home")
-        )
-
     if request.method == "POST":
 
-        username = request.form.get(
-            "username",
-            ""
+        username = (
+            request.form.get("username")
+            or ""
         ).strip()
 
-        password = request.form.get(
-            "password",
-            ""
+        password = (
+            request.form.get("password")
+            or ""
         )
 
         user = User.query.filter_by(
             username=username
         ).first()
 
-        if user and check_password_hash(
-            user.password_hash,
-            password
+        if (
+            user
+            and check_password_hash(
+                user.password_hash,
+                password
+            )
         ):
 
             login_user(user)
 
             flash(
-                "Login successful.",
+                "Welcome back!",
                 "success"
             )
 
             return redirect(
-                url_for("home")
+                url_for("index")
             )
 
         flash(
@@ -531,6 +563,66 @@ def logout():
 
 
 # ============================================================
+# HOME / DASHBOARD
+# ============================================================
+
+@app.route("/")
+@login_required
+def index():
+
+    documents = (
+        Document.query
+        .filter_by(
+            user_id=current_user.id
+        )
+        .order_by(
+            Document.upload_date.desc()
+        )
+        .all()
+    )
+
+    selected_document = None
+
+    document_id = request.args.get(
+        "document_id",
+        type=int
+    )
+
+    if document_id:
+
+        selected_document = (
+            Document.query
+            .filter_by(
+                id=document_id,
+                user_id=current_user.id
+            )
+            .first()
+        )
+
+    if (
+        not selected_document
+        and documents
+    ):
+
+        selected_document = documents[0]
+
+    chat_history = []
+
+    if selected_document:
+
+        chat_history = get_chat_history(
+            selected_document.id
+        )
+
+    return render_template(
+        "index.html",
+        documents=documents,
+        current_document=selected_document,
+        chat_history=chat_history
+    )
+
+
+# ============================================================
 # UPLOAD DOCUMENT
 # ============================================================
 
@@ -541,24 +633,18 @@ def logout():
 @login_required
 def upload():
 
-    file = request.files.get(
-        "file"
-    )
-
-    # --------------------------------------------
-    # CHECK FILE
-    # --------------------------------------------
-
-    if not file:
+    if "file" not in request.files:
 
         flash(
-            "Please select a PDF file.",
+            "No file selected.",
             "error"
         )
 
         return redirect(
-            url_for("home")
+            url_for("index")
         )
+
+    file = request.files["file"]
 
     if not file.filename:
 
@@ -568,16 +654,10 @@ def upload():
         )
 
         return redirect(
-            url_for("home")
+            url_for("index")
         )
 
-    # --------------------------------------------
-    # CHECK FILE TYPE
-    # --------------------------------------------
-
-    if not allowed_file(
-        file.filename
-    ):
+    if not allowed_file(file.filename):
 
         flash(
             "Only PDF files are allowed.",
@@ -585,31 +665,12 @@ def upload():
         )
 
         return redirect(
-            url_for("home")
+            url_for("index")
         )
-
-    # --------------------------------------------
-    # SECURE ORIGINAL FILENAME
-    # --------------------------------------------
 
     original_filename = secure_filename(
         file.filename
     )
-
-    if not original_filename:
-
-        flash(
-            "Invalid filename.",
-            "error"
-        )
-
-        return redirect(
-            url_for("home")
-        )
-
-    # --------------------------------------------
-    # CREATE UNIQUE INTERNAL FILENAME
-    # --------------------------------------------
 
     file_extension = os.path.splitext(
         original_filename
@@ -621,23 +682,13 @@ def upload():
     )
 
     file_path = os.path.join(
-        app.config["UPLOAD_FOLDER"],
+        UPLOAD_FOLDER,
         unique_filename
-    )
-
-    # --------------------------------------------
-    # SAVE FILE
-    # --------------------------------------------
-
-    file.save(
-        file_path
     )
 
     try:
 
-        # ----------------------------------------
-        # CREATE DOCUMENT RECORD
-        # ----------------------------------------
+        file.save(file_path)
 
         document = Document(
             filename=original_filename,
@@ -645,73 +696,35 @@ def upload():
             user_id=current_user.id
         )
 
-        db.session.add(
-            document
-        )
+        db.session.add(document)
 
         db.session.flush()
 
-        # ----------------------------------------
-        # EXTRACT PDF TEXT
-        # ----------------------------------------
-
-        pages = load_document(
-            document
-        )
+        pages = load_document(document)
 
         full_text = "\n".join(
             page["text"]
             for page in pages
         )
 
-        if not full_text.strip():
-
-            db.session.rollback()
-
-            if os.path.exists(file_path):
-
-                os.remove(file_path)
-
-            flash(
-                "Could not extract text from this PDF.",
-                "error"
-            )
-
-            return redirect(
-                url_for("home")
-            )
-
-        # ----------------------------------------
-        # CREATE CHUNKS
-        # ----------------------------------------
-
         chunks = split_text(
             full_text
         )
 
-        document.chunk_count = len(
-            chunks
-        )
-
-        # ----------------------------------------
-        # CREATE EMBEDDINGS
-        # ----------------------------------------
-
-        if chunks:
-
-            embedding_model.encode(
-                chunks
-            )
-
-        # ----------------------------------------
-        # SAVE DATABASE
-        # ----------------------------------------
+        document.chunk_count = len(chunks)
 
         db.session.commit()
 
         flash(
-            f"'{original_filename}' uploaded successfully.",
+            "PDF uploaded successfully.",
             "success"
+        )
+
+        return redirect(
+            url_for(
+                "index",
+                document_id=document.id
+            )
         )
 
     except Exception as error:
@@ -722,19 +735,14 @@ def upload():
 
             os.remove(file_path)
 
-        print(
-            "Upload error:",
-            error
-        )
-
         flash(
-            "Something went wrong while processing the PDF.",
+            f"Upload failed: {error}",
             "error"
         )
 
-    return redirect(
-        url_for("home")
-    )
+        return redirect(
+            url_for("index")
+        )
 
 
 # ============================================================
@@ -747,35 +755,20 @@ def upload():
 @login_required
 def open_document(document_id):
 
-    document = Document.query.get_or_404(
-        document_id
+    document = (
+        Document.query
+        .filter_by(
+            id=document_id,
+            user_id=current_user.id
+        )
+        .first_or_404()
     )
 
-    # --------------------------------------------
-    # SECURITY CHECK
-    # --------------------------------------------
-
-    if document.user_id != current_user.id:
-
-        flash(
-            "You are not allowed to access this document.",
-            "error"
+    return redirect(
+        url_for(
+            "index",
+            document_id=document.id
         )
-
-        return redirect(
-            url_for("home")
-        )
-
-    documents = Document.query.filter_by(
-        user_id=current_user.id
-    ).order_by(
-        Document.upload_date.desc()
-    ).all()
-
-    return render_template(
-        "index.html",
-        documents=documents,
-        current_document=document
     )
 
 
@@ -789,28 +782,14 @@ def open_document(document_id):
 @login_required
 def delete_document(document_id):
 
-    document = Document.query.get_or_404(
-        document_id
+    document = (
+        Document.query
+        .filter_by(
+            id=document_id,
+            user_id=current_user.id
+        )
+        .first_or_404()
     )
-
-    # --------------------------------------------
-    # SECURITY CHECK
-    # --------------------------------------------
-
-    if document.user_id != current_user.id:
-
-        flash(
-            "You are not allowed to delete this document.",
-            "error"
-        )
-
-        return redirect(
-            url_for("home")
-        )
-
-    # --------------------------------------------
-    # DELETE PHYSICAL FILE
-    # --------------------------------------------
 
     filename = (
         document.stored_filename
@@ -818,53 +797,45 @@ def delete_document(document_id):
     )
 
     file_path = os.path.join(
-        app.config["UPLOAD_FOLDER"],
+        UPLOAD_FOLDER,
         filename
     )
 
-    if os.path.exists(file_path):
+    try:
 
-        try:
+        if os.path.exists(file_path):
 
             os.remove(file_path)
 
-        except Exception as error:
+        ChatHistory.query.filter_by(
+            document_id=document.id
+        ).delete()
 
-            print(
-                "File deletion error:",
-                error
-            )
+        db.session.delete(document)
 
-    # --------------------------------------------
-    # DELETE CHAT HISTORY
-    # --------------------------------------------
+        db.session.commit()
 
-    ChatHistory.query.filter_by(
-        document_id=document.id
-    ).delete()
+        flash(
+            "Document deleted successfully.",
+            "success"
+        )
 
-    # --------------------------------------------
-    # DELETE DOCUMENT RECORD
-    # --------------------------------------------
+    except Exception as error:
 
-    db.session.delete(
-        document
-    )
+        db.session.rollback()
 
-    db.session.commit()
-
-    flash(
-        "Document deleted successfully.",
-        "success"
-    )
+        flash(
+            f"Could not delete document: {error}",
+            "error"
+        )
 
     return redirect(
-        url_for("home")
+        url_for("index")
     )
 
 
 # ============================================================
-# ASK AI
+# ASK QUESTION
 # ============================================================
 
 @app.route(
@@ -875,27 +846,44 @@ def delete_document(document_id):
 def ask():
 
     document_id = request.form.get(
-        "document_id"
+        "document_id",
+        type=int
     )
 
-    question = request.form.get(
-        "question",
-        ""
+    question = (
+        request.form.get("question")
+        or ""
     ).strip()
-
-    # --------------------------------------------
-    # VALIDATE QUESTION
-    # --------------------------------------------
 
     if not document_id:
 
         flash(
-            "Please select a document first.",
+            "Please select a document.",
             "error"
         )
 
         return redirect(
-            url_for("home")
+            url_for("index")
+        )
+
+    document = (
+        Document.query
+        .filter_by(
+            id=document_id,
+            user_id=current_user.id
+        )
+        .first()
+    )
+
+    if not document:
+
+        flash(
+            "Document not found.",
+            "error"
+        )
+
+        return redirect(
+            url_for("index")
         )
 
     if not question:
@@ -907,296 +895,66 @@ def ask():
 
         return redirect(
             url_for(
-                "open_document",
-                document_id=document_id
-            )
-        )
-
-    # --------------------------------------------
-    # FIND DOCUMENT
-    # --------------------------------------------
-
-    document = Document.query.get_or_404(
-        int(document_id)
-    )
-
-    # --------------------------------------------
-    # SECURITY CHECK
-    # --------------------------------------------
-
-    if document.user_id != current_user.id:
-
-        flash(
-            "You are not allowed to access this document.",
-            "error"
-        )
-
-        return redirect(
-            url_for("home")
-        )
-
-    try:
-
-        # ----------------------------------------
-        # LOAD PDF
-        # ----------------------------------------
-
-        pages = load_document(
-            document
-        )
-
-        # ----------------------------------------
-        # CREATE PAGE-AWARE CHUNKS
-        # ----------------------------------------
-
-        chunks = []
-
-        for page in pages:
-
-            page_chunks = split_text(
-                page["text"]
-            )
-
-            for chunk in page_chunks:
-
-                chunks.append(
-                    {
-                        "text": chunk,
-                        "page": page["page"]
-                    }
-                )
-
-        if not chunks:
-
-            flash(
-                "No readable text was found in this document.",
-                "error"
-            )
-
-            return redirect(
-                url_for(
-                    "open_document",
-                    document_id=document.id
-                )
-            )
-
-        # ----------------------------------------
-        # EMBED QUESTION
-        # ----------------------------------------
-
-        question_embedding = embedding_model.encode(
-            question
-        )
-
-        # ----------------------------------------
-        # EMBED DOCUMENT CHUNKS
-        # ----------------------------------------
-
-        chunk_texts = [
-            chunk["text"]
-            for chunk in chunks
-        ]
-
-        chunk_embeddings = embedding_model.encode(
-            chunk_texts
-        )
-
-        # ----------------------------------------
-        # CALCULATE SIMILARITY
-        # ----------------------------------------
-
-        scored_chunks = []
-
-        for index, chunk in enumerate(chunks):
-
-            score = cosine_similarity(
-                question_embedding,
-                chunk_embeddings[index]
-            )
-
-            scored_chunks.append(
-                {
-                    "text": chunk["text"],
-                    "page": chunk["page"],
-                    "score": float(score)
-                }
-            )
-
-        # ----------------------------------------
-        # SORT BY RELEVANCE
-        # ----------------------------------------
-
-        scored_chunks.sort(
-            key=lambda item: item["score"],
-            reverse=True
-        )
-
-        # ----------------------------------------
-        # SELECT TOP CHUNKS
-        # ----------------------------------------
-
-        top_chunks = scored_chunks[:3]
-
-        # ----------------------------------------
-        # BUILD DOCUMENT CONTEXT
-        # ----------------------------------------
-
-        context_parts = []
-
-        for item in top_chunks:
-
-            context_parts.append(
-                f"[Page {item['page']}]\n"
-                f"{item['text']}"
-            )
-
-        document_context = "\n\n".join(
-            context_parts
-        )
-
-        # ----------------------------------------
-        # BUILD CHAT CONTEXT
-        # ----------------------------------------
-
-        conversation_context = (
-            build_conversation_context(
-                document.id
-            )
-        )
-
-        # ----------------------------------------
-        # BUILD AI PROMPT
-        # ----------------------------------------
-
-        prompt = f"""
-You are an AI assistant that answers questions
-about a user's uploaded PDF document.
-
-Use ONLY the information provided in the document context.
-
-If the answer is not present in the document context,
-clearly say that the information was not found in the document.
-
-Do not invent facts.
-
-Be concise, clear, and useful.
-
-You may use previous conversation context to understand
-follow-up questions, but your factual answer must come
-from the document.
-
-DOCUMENT CONTEXT:
-
-{document_context}
-
-PREVIOUS CONVERSATION:
-
-{conversation_context}
-
-CURRENT QUESTION:
-
-{question}
-
-Answer the current question.
-"""
-
-        # ----------------------------------------
-        # CALL OLLAMA
-        # ----------------------------------------
-
-        response = ollama.chat(
-            model="llama3.2:3b",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-
-        answer = response[
-            "message"
-        ][
-            "content"
-        ]
-
-        # ----------------------------------------
-        # CONVERT MARKDOWN
-        # ----------------------------------------
-
-        answer_html = markdown.markdown(
-            answer
-        )
-
-        # ----------------------------------------
-        # SAVE CHAT HISTORY
-        # ----------------------------------------
-
-        chat = ChatHistory(
-            document_id=document.id,
-            question=question,
-            answer=answer
-        )
-
-        db.session.add(
-            chat
-        )
-
-        db.session.commit()
-
-        # ----------------------------------------
-        # SOURCE PAGES
-        # ----------------------------------------
-
-        source_pages = sorted(
-            set(
-                item["page"]
-                for item in top_chunks
-            )
-        )
-
-        # ----------------------------------------
-        # RENDER DASHBOARD
-        # ----------------------------------------
-
-        documents = Document.query.filter_by(
-            user_id=current_user.id
-        ).order_by(
-            Document.upload_date.desc()
-        ).all()
-
-        history = get_chat_history(
-            document.id
-        )
-
-        return render_template(
-            "index.html",
-            documents=documents,
-            current_document=document,
-            answer=answer_html,
-            question=question,
-            source_pages=source_pages,
-            chat_history=history
-        )
-
-    except Exception as error:
-
-        print(
-            "AI question error:",
-            error
-        )
-
-        flash(
-            "Something went wrong while processing your question.",
-            "error"
-        )
-
-        return redirect(
-            url_for(
-                "open_document",
+                "index",
                 document_id=document.id
             )
         )
+
+    pages = load_document(document)
+
+    results = search_document(
+        pages,
+        question
+    )
+
+    answer = generate_answer(
+        question,
+        results
+    )
+
+    source_pages = sorted(
+        set(
+            result["page"]
+            for result in results
+        )
+    )
+
+    answer_html = markdown.markdown(
+        answer
+    )
+
+    history = ChatHistory(
+        document_id=document.id,
+        question=question,
+        answer=answer
+    )
+
+    db.session.add(history)
+
+    db.session.commit()
+
+    chat_history = get_chat_history(
+        document.id
+    )
+
+    return render_template(
+        "index.html",
+        documents=(
+            Document.query
+            .filter_by(
+                user_id=current_user.id
+            )
+            .order_by(
+                Document.upload_date.desc()
+            )
+            .all()
+        ),
+        current_document=document,
+        answer=answer_html,
+        source_pages=source_pages,
+        question=question,
+        chat_history=chat_history
+    )
 
 
 # ============================================================
@@ -1211,169 +969,98 @@ Answer the current question.
 def summarize():
 
     document_id = request.form.get(
-        "document_id"
+        "document_id",
+        type=int
     )
 
-    if not document_id:
-
-        flash(
-            "Please select a document first.",
-            "error"
-        )
-
-        return redirect(
-            url_for("home")
-        )
-
-    document = Document.query.get_or_404(
-        int(document_id)
-    )
-
-    # --------------------------------------------
-    # SECURITY CHECK
-    # --------------------------------------------
-
-    if document.user_id != current_user.id:
-
-        flash(
-            "You are not allowed to access this document.",
-            "error"
-        )
-
-        return redirect(
-            url_for("home")
-        )
-
-    try:
-
-        # ----------------------------------------
-        # LOAD PDF
-        # ----------------------------------------
-
-        pages = load_document(
-            document
-        )
-
-        full_text = "\n\n".join(
-            page["text"]
-            for page in pages
-        )
-
-        if not full_text.strip():
-
-            flash(
-                "No readable text was found in this document.",
-                "error"
-            )
-
-            return redirect(
-                url_for(
-                    "open_document",
-                    document_id=document.id
-                )
-            )
-
-        # ----------------------------------------
-        # LIMIT TEXT FOR LOCAL MODEL
-        # ----------------------------------------
-
-        summary_text = full_text[:12000]
-
-        # ----------------------------------------
-        # SUMMARY PROMPT
-        # ----------------------------------------
-
-        prompt = f"""
-Create a clear and useful summary of the uploaded document.
-
-Use only the information contained in the document.
-
-Important rules:
-
-- Do not invent information.
-- Preserve numerical values accurately.
-- Do not confuse CGPA with percentage.
-- Keep important education, skills, projects,
-  experience, achievements, and other relevant facts.
-- Do not unnecessarily include private contact details.
-- Use headings and bullet points where useful.
-- Keep the summary reasonably concise.
-
-DOCUMENT:
-
-{summary_text}
-
-SUMMARY:
-"""
-
-        # ----------------------------------------
-        # CALL OLLAMA
-        # ----------------------------------------
-
-        response = ollama.chat(
-            model="llama3.2:3b",
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-
-        summary = response[
-            "message"
-        ][
-            "content"
-        ]
-
-        summary_html = markdown.markdown(
-            summary
-        )
-
-        # ----------------------------------------
-        # LOAD DOCUMENT LIST
-        # ----------------------------------------
-
-        documents = Document.query.filter_by(
+    document = (
+        Document.query
+        .filter_by(
+            id=document_id,
             user_id=current_user.id
-        ).order_by(
-            Document.upload_date.desc()
-        ).all()
-
-        # ----------------------------------------
-        # CHAT HISTORY
-        # ----------------------------------------
-
-        history = get_chat_history(
-            document.id
         )
+        .first()
+    )
 
-        return render_template(
-            "index.html",
-            documents=documents,
-            current_document=document,
-            summary=summary_html,
-            chat_history=history
-        )
-
-    except Exception as error:
-
-        print(
-            "Summary error:",
-            error
-        )
+    if not document:
 
         flash(
-            "Something went wrong while creating the summary.",
+            "Document not found.",
+            "error"
+        )
+
+        return redirect(
+            url_for("index")
+        )
+
+    pages = load_document(document)
+
+    full_text = "\n".join(
+        page["text"]
+        for page in pages
+    )
+
+    if not full_text.strip():
+
+        flash(
+            "No readable text was found in this PDF.",
             "error"
         )
 
         return redirect(
             url_for(
-                "open_document",
+                "index",
                 document_id=document.id
             )
         )
+
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        full_text
+    )
+
+    summary_sentences = []
+
+    for sentence in sentences:
+
+        sentence = sentence.strip()
+
+        if sentence:
+
+            summary_sentences.append(
+                sentence
+            )
+
+        if len(summary_sentences) >= 8:
+
+            break
+
+    summary = " ".join(
+        summary_sentences
+    )
+
+    summary_html = markdown.markdown(
+        summary
+    )
+
+    return render_template(
+        "index.html",
+        documents=(
+            Document.query
+            .filter_by(
+                user_id=current_user.id
+            )
+            .order_by(
+                Document.upload_date.desc()
+            )
+            .all()
+        ),
+        current_document=document,
+        summary=summary_html,
+        chat_history=get_chat_history(
+            document.id
+        )
+    )
 
 
 # ============================================================

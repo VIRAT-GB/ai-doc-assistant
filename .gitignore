@@ -5,3 +5,6 @@ instance/
 __pycache__/
 *.pyc
 .DS_Store
+app_backup.py
+app_before_render.py
+requirements-local.txt
