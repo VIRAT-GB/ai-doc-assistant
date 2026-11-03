@@ -1,157 +1,102 @@
 # AI Doc Assistant
 
-AI Doc Assistant is a Flask-based web application that allows users to upload PDF documents and ask questions about their content using AI.
+AI Doc Assistant is a Flask-based web application that allows users to upload PDF documents, ask questions about their documents, and generate summaries.
 
-The application extracts text from uploaded PDFs, splits the text into smaller chunks, creates semantic embeddings, finds the most relevant parts of the document, and uses a local LLM to generate an answer based on the retrieved content.
+The project includes user authentication, document isolation, PDF text extraction, keyword-based document retrieval, question answering, and chat history.
+
+
+## Live Demo
+
+https://ai-doc-assistant-q56n.onrender.com
+
+
+## GitHub
+
+
+https://github.com/VIRAT-GB/ai-doc-assistant
 
 ## Features
 
 - User registration and login
 - Secure password hashing
 - User-specific document isolation
-- PDF upload
-- Secure PDF file storage
+- PDF document upload
 - PDF text extraction
-- Text chunking
-- Semantic embeddings
-- Semantic similarity search
-- Retrieval-Augmented Generation (RAG)
-- Local AI responses using Ollama
-- Conversation-aware questions
+- Automatic document chunking
+- Keyword-based document search
+- Ask questions about uploaded documents
+- AI-style extractive answers based on document content
+- Document summaries
 - Chat history
-- AI-generated document summaries
-- Source page references
-- Document deletion
+- Open and delete uploaded documents
+- Protected routes using Flask-Login
 - Responsive web interface
-- 10 MB PDF upload limit
-- PDF-only file validation
 
-## How It Works
+## Tech Stack
 
-```text
-PDF Upload
-    ↓
-PDF Text Extraction
-    ↓
-Text Chunking
-    ↓
-Sentence Transformer Embeddings
-    ↓
-User Question
-    ↓
-Question Embedding
-    ↓
-Semantic Similarity Search
-    ↓
-Relevant Document Chunks
-    ↓
-Conversation Context
-    ↓
-Ollama LLM
-    ↓
-AI Answer + Source Pages
-```
-
-## Technology Stack
-
-### Backend
 - Python
 - Flask
-- Flask-SQLAlchemy
 - Flask-Login
-
-### AI / Machine Learning
-- Sentence Transformers
-- `all-MiniLM-L6-v2`
-- Ollama
-- Llama 3.2 3B
-- NumPy
-- Retrieval-Augmented Generation (RAG)
-
-### PDF Processing
-- pypdf
-
-### Database
+- Flask-SQLAlchemy
 - SQLite
-- SQLAlchemy
-
-### Frontend
+- pypdf
+- Markdown
 - HTML
 - CSS
-- JavaScript
+- Gunicorn
+- Git & GitHub
+- Render
 
-### Development Tools
-- Git
-- GitHub
-- VS Code
+## Project Architecture
 
-## Security
+The application follows a simple Flask web application architecture.
 
-The application includes several basic security measures:
+### Document Processing
 
-- Passwords are stored using secure password hashing.
-- Users can only access their own documents.
-- Uploaded files are restricted to PDF files.
-- Uploaded files have a maximum size of 10 MB.
-- Uploaded files are stored using unique internal filenames.
-- Sensitive files such as `.env`, uploaded documents, the virtual environment, and the SQLite database are excluded from Git.
+1. User uploads a PDF.
+2. The PDF text is extracted using `pypdf`.
+3. The extracted text is divided into smaller chunks.
+4. Chunks are stored and associated with the logged-in user.
+5. When the user asks a question, the application searches the document chunks for relevant keywords.
+6. The most relevant text is used to generate an answer.
 
-## Local Setup
+### User Isolation
 
-### 1. Clone the repository
+Each document is associated with the user who uploaded it using `user_id`.
 
-```bash
-git clone https://github.com/VIRAT-GB/ai-doc-assistant.git
-cd ai-doc-assistant
-```
+This prevents one user from accessing another user's uploaded documents.
 
-### 2. Create a virtual environment
+### Database
 
-```bash
-python3 -m venv venv
-```
+SQLite with SQLAlchemy is used to manage:
 
-### 3. Activate the virtual environment
+- Users
+- Documents
+- Chat history
 
-```bash
-source venv/bin/activate
-```
-
-### 4. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 5. Install and run Ollama
-
-Install Ollama on your computer and download the required model:
-
-```bash
-ollama pull llama3.2:3b
-```
-
-Make sure Ollama is running before starting the Flask application.
-
-### 6. Start the application
-
-```bash
-python app.py
-```
-
-Open:
+## Application Flow
 
 ```text
-http://127.0.0.1:5000
+User
+  ↓
+Login / Register
+  ↓
+Upload PDF
+  ↓
+Extract PDF Text
+  ↓
+Split into Chunks
+  ↓
+Store Document
+  ↓
+Ask Question
+  ↓
+Search Relevant Chunks
+  ↓
+Generate Answer
+  ↓
+Display Answer + Chat History
 ```
-
-## Example
-
-A user can upload a resume PDF and ask:
-
-> What is my B.Tech CGPA?
-
-The application retrieves the most relevant section of the PDF and generates an answer using the local LLM.
 
 ## Project Structure
 
@@ -161,7 +106,7 @@ ai-doc-assistant/
 ├── app.py
 ├── models.py
 ├── requirements.txt
-├── README.md
+├── readme.md
 ├── .gitignore
 │
 ├── templates/
@@ -173,34 +118,81 @@ ai-doc-assistant/
     └── style.css
 ```
 
-## Key Concepts Demonstrated
+## Running Locally
 
-This project demonstrates practical implementation of:
+Clone the repository:
 
-- Flask web development
-- User authentication
-- Database operations with SQLAlchemy
+```bash
+git clone https://github.com/VIRAT-GB/ai-doc-assistant.git
+cd ai-doc-assistant
+```
+
+Create and activate a virtual environment:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the application:
+
+```bash
+python app.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+## Deployment
+
+The application is deployed on Render using Gunicorn.
+
+Start command:
+
+```bash
+gunicorn app:app
+```
+
+The deployed version is designed to run within the resource limits of the Render deployment environment and does not depend on large machine-learning libraries or a locally running Ollama server.
+
+## What I Learned
+
+Through this project, I worked with:
+
+- Flask application development
+- Authentication and authorization
+- Password hashing
+- SQLAlchemy database models
+- SQLite
 - PDF processing
-- Text preprocessing
-- Embeddings
-- Vector similarity
-- Semantic search
-- Retrieval-Augmented Generation
-- Local LLM integration
-- Prompt construction
-- Conversation context
-- Secure file handling
+- Text chunking
+- Document retrieval
+- User-specific data isolation
+- REST-style Flask routes
+- HTML/CSS frontend development
 - Git and GitHub
+- Production deployment with Gunicorn
+- Render deployment
+- Debugging deployment and memory issues
 
-## Future Deployment
+## Future Improvements
 
-The application is designed to be deployed as a production web application. The local Ollama setup is currently used for AI inference during development.
+Possible future improvements include:
 
-## Author
-
-**GB Virat**
-
-B.Tech Electronics and Communication Engineering  
-PES University, Bengaluru
-
-GitHub: https://github.com/VIRAT-GB
+- Vector embeddings
+- Semantic search
+- Retrieval-Augmented Generation (RAG)
+- Larger language models
+- Streaming AI responses
+- Improved document processing
+- Support for additional document formats
+- Cloud database integration
